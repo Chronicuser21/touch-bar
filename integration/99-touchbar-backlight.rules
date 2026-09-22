@@ -1,5 +1,7 @@
 # Let the desktop session hold the Touch Bar backlight on while dictating or
 # while Claude works. tiny-dfr blacks the panel out after 60s of no input.
+# install.sh substitutes @@BIN@@ with the directory holding chgrp/chmod so the
+# rule works on NixOS, which has no /usr/bin.
 ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="appletb_backlight", \
-  RUN+="/usr/bin/chgrp input /sys/class/backlight/appletb_backlight/brightness", \
-  RUN+="/usr/bin/chmod g+w /sys/class/backlight/appletb_backlight/brightness"
+  RUN+="@@BIN@@/chgrp input /sys/class/backlight/appletb_backlight/brightness", \
+  RUN+="@@BIN@@/chmod g+w /sys/class/backlight/appletb_backlight/brightness"

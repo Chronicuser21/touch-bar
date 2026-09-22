@@ -68,13 +68,27 @@ _WTYPE_STATE_LOCK = threading.Lock()
 
 # Runtime helpers are intentionally absolute. User services and shell widgets
 # do not inherit the same PATH as an interactive terminal, and a writable PATH
-# entry must never decide which executable handles a touch.
-WTYPE_BIN = "/usr/bin/wtype"
-WPCTL_BIN = "/usr/bin/wpctl"
-BUSCTL_BIN = "/usr/bin/busctl"
-BRIGHTNESSCTL_BIN = "/usr/bin/brightnessctl"
-VOXTYPE_BIN = "/usr/bin/voxtype"
-RSVG_CONVERT_BIN = "/usr/bin/rsvg-convert"
+# entry must never decide which executable handles a touch. NixOS keeps no
+# /usr/bin, so look in a fixed system-directory list (its system profile, then
+# the usual FHS layouts) rather than consulting the ambient PATH.
+SYSTEM_BIN_DIRS = ("/run/current-system/sw/bin", "/usr/local/bin",
+                   "/usr/bin", "/bin")
+
+
+def _system_bin(name, default):
+    for directory in SYSTEM_BIN_DIRS:
+        path = os.path.join(directory, name)
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return default
+
+
+WTYPE_BIN = _system_bin("wtype", "/usr/bin/wtype")
+WPCTL_BIN = _system_bin("wpctl", "/usr/bin/wpctl")
+BUSCTL_BIN = _system_bin("busctl", "/usr/bin/busctl")
+BRIGHTNESSCTL_BIN = _system_bin("brightnessctl", "/usr/bin/brightnessctl")
+VOXTYPE_BIN = _system_bin("voxtype", "/usr/bin/voxtype")
+RSVG_CONVERT_BIN = _system_bin("rsvg-convert", "/usr/bin/rsvg-convert")
 OMARCHY_NOTIFY_BIN = "/usr/share/omarchy/bin/omarchy-notification-send"
 OMARCHY_PL_BIN = os.path.join(HOME, ".local", "bin", "omarchy-pl")
 

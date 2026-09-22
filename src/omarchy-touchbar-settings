@@ -27,6 +27,20 @@ DAEMON = os.path.join(HOME, ".local", "bin", "omarchy-touchbar")
 PREVIEW_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp",
                            "omarchy-touchbar-previews")
 
+
+def _system_bin(name, default):
+    # NixOS keeps no /usr/bin, so resolve from its system profile or the usual
+    # FHS layouts without trusting a user-writable PATH entry.
+    for directory in ("/run/current-system/sw/bin", "/usr/local/bin",
+                      "/usr/bin", "/bin"):
+        path = os.path.join(directory, name)
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return default
+
+
+SYSTEMCTL_BIN = _system_bin("systemctl", "/usr/bin/systemctl")
+
 FEATURES = (
     ("dictation", "Dictation", "Microphone button and Touch-Bar-only Voxtype dictation"),
     ("media", "Media transport", "Play, skip and mute wherever something is playing"),
@@ -259,7 +273,7 @@ def plugin_club():
 
 def daemon_active():
     try:
-        out = subprocess.run(["/usr/bin/systemctl", "--user", "is-active", "omarchy-touchbar"],
+        out = subprocess.run([SYSTEMCTL_BIN, "--user", "is-active", "omarchy-touchbar"],
                              capture_output=True, text=True, timeout=3).stdout.strip()
         return out == "active"
     except (OSError, subprocess.SubprocessError):
@@ -328,7 +342,7 @@ def main():
             self.queue_save()
 
         def restart_daemon(self):
-            subprocess.Popen(["/usr/bin/systemctl", "--user", "restart", "omarchy-touchbar"],
+            subprocess.Popen([SYSTEMCTL_BIN, "--user", "restart", "omarchy-touchbar"],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.toast.add_toast(Adw.Toast(title="Touch Bar daemon restarting"))
 

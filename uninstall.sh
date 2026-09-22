@@ -1,17 +1,42 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 # Remove the Omarchy Touch Bar daemon and leave tiny-dfr with a plain F-row.
 set -euo pipefail
+
+# NixOS keeps no /usr/bin; resolve tools from the system profile or FHS paths
+# before falling back to PATH.
+find_tool () {
+  local name=$1 path
+  for path in /run/current-system/sw/bin /usr/local/sbin /usr/local/bin \
+              /usr/sbin /usr/bin /sbin /bin; do
+    if [[ -x $path/$name ]]; then
+      printf '%s\n' "$path/$name"
+      return 0
+    fi
+  done
+  if path=$(command -v "$name" 2>/dev/null); then
+    printf '%s\n' "$path"
+    return 0
+  fi
+  return 1
+}
+
+systemctl=$(find_tool systemctl || true)
+systemctl=${systemctl:-systemctl}
+rm=$(find_tool rm || true)
+rm=${rm:-rm}
+sed=$(find_tool sed || true)
+sed=${sed:-sed}
 
 user_bin="${HOME}/.local/bin"
 omarchy_config="${HOME}/.config/omarchy"
 hypr_config="${HOME}/.config/hypr"
 user_systemd="${HOME}/.config/systemd/user"
 
-/usr/bin/systemctl --user disable --now omarchy-touchbar.service 2>/dev/null || true
-/usr/bin/rm -f "$user_systemd/omarchy-touchbar.service"
-/usr/bin/systemctl --user daemon-reload
+"$systemctl" --user disable --now omarchy-touchbar.service 2>/dev/null || true
+"$rm" -f "$user_systemd/omarchy-touchbar.service"
+"$systemctl" --user daemon-reload
 
-/usr/bin/rm -f "$user_bin/omarchy-touchbar" "$user_bin/omarchy-chatgpt-dictate" \
+"$rm" -f "$user_bin/omarchy-touchbar" "$user_bin/omarchy-chatgpt-dictate" \
   "$user_bin/omarchy-touchbar-settings" \
   "${HOME}/.local/share/applications/omarchy-touchbar-settings.desktop" \
   "$omarchy_config/hooks/theme-set.d/touchbar" \
@@ -19,7 +44,7 @@ user_systemd="${HOME}/.config/systemd/user"
 
 autostart="$hypr_config/autostart.lua"
 if [[ -f $autostart ]]; then
-  /usr/bin/sed -i '/Context-aware T2 MacBook Touch Bar/d;/omarchy-touchbar/d' "$autostart"
+  "$sed" -i '/Context-aware T2 MacBook Touch Bar/d;/omarchy-touchbar/d' "$autostart"
 fi
 
 echo "Touch Bar daemon removed. Kept: ~/.config/omarchy/touchbar.toml and the"
