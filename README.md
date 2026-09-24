@@ -94,6 +94,28 @@ prepare `/etc/tiny-dfr`, allow the session to hold the Touch Bar backlight,
 and install the post-resume panel reset. `./uninstall.sh` reverses the
 user-level parts.
 
+### NixOS
+
+NixOS generates `/etc` (partly read-only), so the installer detects NixOS and
+skips those system steps. Import the bundled module so the writable
+`/etc/tiny-dfr`, the backlight udev rule and the post-resume panel reset are
+declared instead and survive every `nixos-rebuild`:
+
+```nix
+# configuration.nix
+imports = [ /path/to/touch-bar/nixos/touchbar.nix ];
+services.omarchyTouchbar = {
+  enable = true;
+  user = "b";   # the account that runs omarchy-touchbar.service
+};
+```
+
+Then run `./install.sh` as your normal user (not via `sudo`); the installer
+uses `sudo` itself only to prepare `/etc/tiny-dfr` for live user rendering,
+and prints a reminder about the module import. The tiny-dfr service and its
+seat/device udev rules still come from the apple-silicon fork's
+`hardware.apple.touchBar.enable`.
+
 ## Commands
 
 ```bash

@@ -2,12 +2,15 @@
 set -euo pipefail
 
 # NixOS keeps no /usr/bin, so find every tool in a fixed system-directory
-# list first (NixOS's system profile, then the usual FHS layouts), falling
-# back to PATH only for ad-hoc installs such as a nix shell or a local build.
+# list first (NixOS's setuid wrappers and system profile, then the usual FHS
+# layouts), falling back to PATH only for ad-hoc installs such as a nix shell
+# or a local build. /run/wrappers/bin has the setuid sudo, which is required
+# on NixOS; /run/current-system/sw/bin/sudo is a plain store binary that
+# refuses to raise privileges.
 find_tool () {
   local name=$1 path
-  for path in /run/current-system/sw/bin /usr/local/sbin /usr/local/bin \
-              /usr/sbin /usr/bin /sbin /bin; do
+  for path in /run/wrappers/bin /run/current-system/sw/bin \
+              /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
     if [[ -x $path/$name ]]; then
       printf '%s\n' "$path/$name"
       return 0
@@ -34,6 +37,22 @@ done
 script_path=${BASH_SOURCE[0]}
 [[ $script_path == /* ]] || script_path=$PWD/$script_path
 project_dir=$(cd -- "${script_path%/*}" && pwd -P)
+
+if [[ $("${BIN[id]}" -u) -eq 0 ]]; then
+  echo "Run install.sh as your normal user, not via sudo: user-level files" >&2
+  echo "land in \$HOME, and the few privileged steps call sudo themselves." >&2
+  exit 1
+fi
+
+me=$("${BIN[id]}" -un)
+mygroup=$("${BIN[id]}" -gn)
+# NixOS's /etc is generated (partly read-only store links), so writable-free
+# system steps are handled declaratively; detect it for those branches.
+nixos=false
+if [[ -e /run/current-system && -d /run/current-system ]]; then
+  nixos=true
+fi
+
 user_bin="${HOME}/.local/bin"
 omarchy_config="${HOME}/.config/omarchy"
 hypr_config="${HOME}/.config/hypr"
@@ -95,13 +114,28 @@ fi
 
 if [[ ! -d /etc/tiny-dfr || ! -w /etc/tiny-dfr ]]; then
   echo "Preparing /etc/tiny-dfr for live user-level rendering (sudo required)."
-  "${BIN[sudo]}" "${BIN[install]}" -d -m 0755 -o "$("${BIN[id]}" -un)" -g "$("${BIN[id]}" -gn)" /etc/tiny-dfr /etc/tiny-dfr/gen
+  "${BIN[sudo]}" "${BIN[install]}" -d -m 0755 -o "$me" -g "$mygroup" /etc/tiny-dfr /etc/tiny-dfr/gen
+  if $nixos && [[ -L /etc/tiny-dfr/config.toml ]]; then
+    # On NixOS /etc/tiny-dfr/config.toml is a read-only symlink into the store
+    # (hardware.apple.touchBar.settings). Drop it so the daemon can own a live
+    # file and rewrite it in place.
+    "${BIN[sudo]}" "${BIN[rm]}" -f /etc/tiny-dfr/config.toml
+  fi
   "${BIN[sudo]}" "${BIN[touch]}" /etc/tiny-dfr/config.toml
-  "${BIN[sudo]}" "${BIN[chown]}" "$("${BIN[id]}" -un):$("${BIN[id]}" -gn)" /etc/tiny-dfr/config.toml
+  "${BIN[sudo]}" "${BIN[chown]}" "$me:$mygroup" /etc/tiny-dfr/config.toml
+  if $nixos; then
+    echo "  (NixOS: a nixos-rebuild re-links config.toml into the store; import"
+    echo "   nixos/touchbar.nix so tmpfiles keeps it live and user-owned.)"
+  fi
 fi
 
 backlight_rule=/etc/udev/rules.d/99-touchbar-backlight.rules
-if [[ ! -e $backlight_rule ]]; then
+if $nixos; then
+  if [[ ! -e $backlight_rule ]]; then
+    echo "Skipping the backlight udev rule (NixOS generates /etc/udev/rules.d)."
+    echo "Declare services.udev.extraRules via the bundled nixos/touchbar.nix."
+  fi
+elif [[ ! -e $backlight_rule ]]; then
   echo "Allowing the session to hold the Touch Bar backlight on (sudo required)."
   bin_dir=$(dirname "${BIN[chgrp]}")
   tmp_rules=$(mktemp)
@@ -114,7 +148,11 @@ if [[ ! -e $backlight_rule ]]; then
 fi
 
 panel_reset=/usr/local/lib/touchbar-panel-reset
-if [[ ! -e $panel_reset ]] \
+if $nixos; then
+  echo "Skipping the post-resume panel reset (no writable /etc/systemd on NixOS)."
+  echo "Declare systemd.services.touchbar-panel-reset via the bundled"
+  echo "nixos/touchbar.nix module."
+elif [[ ! -e $panel_reset ]] \
     || ! "${BIN[cmp]}" -s "$project_dir/integration/touchbar-panel-reset" "$panel_reset"; then
   echo "Installing the post-resume Touch Bar display reset (sudo required)."
   "${BIN[sudo]}" "${BIN[install]}" -m 0755 "$project_dir/integration/touchbar-panel-reset" "$panel_reset"
@@ -139,3 +177,10 @@ fi
 
 echo "Omarchy Touch Bar installed and running."
 echo "Run: omarchy-touchbar status"
+if $nixos; then
+  echo
+  echo "NixOS: keep the system pieces across nixos-rebuild by importing"
+  echo "  $project_dir/nixos/touchbar.nix"
+  echo "from configuration.nix and setting"
+  echo "  services.omarchyTouchbar = { enable = true; user = \"$me\"; };"
+fi

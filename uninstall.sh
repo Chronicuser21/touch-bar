@@ -52,3 +52,8 @@ echo "sudo-installed pieces (/etc/tiny-dfr, udev rule, touchbar-panel-reset)."
 echo "Remove those with:"
 echo "  sudo systemctl disable --now touchbar-panel-reset.service"
 echo "  sudo rm -f /etc/systemd/system/touchbar-panel-reset.service /usr/local/lib/touchbar-panel-reset /etc/udev/rules.d/99-touchbar-backlight.rules"
+if [[ -d /run/current-system ]]; then
+  echo
+  echo "On NixOS the system pieces come from nixos/touchbar.nix instead: drop"
+  echo "that import from configuration.nix and nixos-rebuild switch."
+fi
