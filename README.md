@@ -103,12 +103,24 @@ declared instead and survive every `nixos-rebuild`:
 
 ```nix
 # configuration.nix
-imports = [ /path/to/touch-bar/nixos/touchbar.nix ];
-services.omarchyTouchbar = {
-  enable = true;
-  user = "b";   # the account that runs omarchy-touchbar.service
-};
+{ inputs, ... }:
+{
+  imports = [ /path/to/touch-bar/nixos/touchbar.nix ];
+  services.omarchyTouchbar = {
+    enable = true;
+    user = "b";                 # the account that runs omarchy-touchbar.service
+    tree = inputs.touchbar;     # flake input -> PyGObject settings app wrapper
+  };
+}
 ```
+
+`tree` points the module at the touch-bar source so it can install an
+`omarchy-touchbar-settings` wrapper in the system profile. NixOS's system
+python has no `python-gobject`, so without it `omarchy-touchbar settings` dies
+with `No module named 'gi'`; the wrapper runs the settings app under a python3
+built with PyGObject plus the GTK4/libadwaita typelibs, and `install.sh` skips
+the `~/.local/bin` copy on NixOS so the wrapper is not shadowed. (Remove any
+older `~/.local/bin/omarchy-touchbar-settings` you may already have.)
 
 Then run `./install.sh` as your normal user (not via `sudo`); the installer
 uses `sudo` itself only to prepare `/etc/tiny-dfr` for live user rendering,

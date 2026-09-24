@@ -16,7 +16,18 @@
 #
 # Import it from configuration.nix and enable it, e.g.:
 #   imports = [ /path/to/touch-bar/nixos/touchbar.nix ];
-#   services.omarchyTouchbar = { enable = true; user = "b"; };
+#   services.omarchyTouchbar = {
+#     enable = true;
+#     user = "b";
+#     tree = inputs.touchbar;   # flake input -> PyGObject settings app
+#   };
+#
+# On NixOS the system python ("/usr/bin/env python3" from install.sh's shebangs)
+# has no PyGObject, so the settings window also ships as a wrapper command
+# "omarchy-touchbar-settings" in the system profile that runs
+# src/omarchy-touchbar-settings under a python3 built with Python-gobject and
+# the GTK4/libadwaita typelibs (see the NixOS froth below). install.sh skips
+# the ~/.local/bin copy on NixOS so the wrapper stays authoritative.
 #
 # tiny-dfr itself (the service and its seat/device udev rules) is expected to
 # come from the apple-silicon fork's hardware.apple.touchBar.enable, the same
@@ -25,14 +36,37 @@
 
 let
   cfg = config.services.omarchyTouchbar;
+
+  # Python-gobject build of the system interpreter (kept out of the profile:
+  # replacing bin/python3 would collide with the python3 already merged there).
+  pyGtkEnv = pkgs.python3.withPackages (pythonPkgs: [ pythonPkgs.pygobject3 ]);
+
+  # gi resolves Gtk/Adw only from GI_TYPELIB_PATH (setting it hides the python
+  # env's own typelibs), so expose every typelib directory Gtk 4 + libadwaita
+  # depend on. Verified on this nixpkgs by importing Gtk/Adw under the env.
+  giTypelibPath = lib.makeSearchPathOutput "out" "lib/girepository-1.0" (with pkgs; [
+    gtk4
+    libadwaita
+    graphene
+    gdk-pixbuf
+    pango
+    harfbuzz
+    gobject-introspection
+  ]);
 in
 {
   options.services.omarchyTouchbar = {
-    enable = lib.mkEnableOption "system wiring for the Omarchy Touch Bar daemon (writable /etc/tiny-dfr, backlight udev rule, post-resume panel reset)";
+    enable = lib.mkEnableOption "system wiring for the Omarchy Touch Bar daemon (writable /etc/tiny-dfr, backlight udev rule, post-resume panel reset, PyGObject settings app)";
     user = lib.mkOption {
       type = lib.types.str;
       example = "b";
       description = "Unix account that runs the omarchy-touchbar user service and owns /etc/tiny-dfr.";
+    };
+    tree = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      example = lib.literalExample "inputs.touchbar";
+      description = "Checkout of the touch-bar flake input hosting src/omarchy-touchbar-settings, e.g. pass the flake input itself (inputs.touchbar). When set, the module installs an omarchy-touchbar-settings wrapper in the system profile (PyGObject python + GTK4/libadwaita typelibs); leave null to skip the wrapper.";
     };
   };
 
@@ -41,6 +75,16 @@ in
     # symlink (hardware.apple.touchBar.settings) so the daemon can write a
     # live config in place; tmpfiles below keeps a real file there.
     environment.etc."tiny-dfr/config.toml".enable = lib.mkForce false;
+
+    # The settings window needs python-gobject with GTK4/libadwaita, which the
+    # system python lacks. Ship it as a system command so `omarchy-touchbar
+    # settings` works without replacing bin/python3 (which would collide).
+    environment.systemPackages = lib.mkIf (cfg.tree != null) [
+      (pkgs.writeShellScriptBin "omarchy-touchbar-settings" ''
+        export GI_TYPELIB_PATH="${giTypelibPath}"
+        exec "${pyGtkEnv}/bin/python3" "${cfg.tree}/src/omarchy-touchbar-settings" "$@"
+      '')
+    ];
 
     systemd.tmpfiles.rules = [
       "d /etc/tiny-dfr 0755 ${cfg.user} - - -"

@@ -69,7 +69,17 @@ fi
 "${BIN[install]}" -d "$user_bin" "$omarchy_config" "$omarchy_config/hooks/theme-set.d" "$hypr_config" "$user_systemd"
 "${BIN[install]}" -m 0755 "$project_dir/src/omarchy-touchbar" "$user_bin/omarchy-touchbar"
 "${BIN[install]}" -m 0755 "$project_dir/src/omarchy-chatgpt-dictate" "$user_bin/omarchy-chatgpt-dictate"
-"${BIN[install]}" -m 0755 "$project_dir/src/omarchy-touchbar-settings" "$user_bin/omarchy-touchbar-settings"
+if $nixos; then
+  # The system python has no PyGObject/GTK4, so on NixOS the settings app is a
+  # wrapper in /run/current-system/sw/bin provided by nixos/touchbar.nix when
+  # omarchyTouchbar.tree is set. Skip the ~/.local/bin copy (it would shadow
+  # the wrapper and crash with "No module named gi").
+  echo "Skipping ~/.local/bin/omarchy-touchbar-settings (NixOS): the module's"
+  echo "omarchy-touchbar-settings wrapper replaces it. Declare it with, e.g."
+  echo "  services.omarchyTouchbar = { enable = true; user = \"$me\"; tree = inputs.touchbar; };"
+else
+  "${BIN[install]}" -m 0755 "$project_dir/src/omarchy-touchbar-settings" "$user_bin/omarchy-touchbar-settings"
+fi
 "${BIN[install]}" -d "${HOME}/.local/share/applications"
 "${BIN[install]}" -m 0644 "$project_dir/integration/omarchy-touchbar-settings.desktop" \
   "${HOME}/.local/share/applications/omarchy-touchbar-settings.desktop"
@@ -162,8 +172,11 @@ elif [[ ! -e $panel_reset ]] \
   "${BIN[sudo]}" "${BIN[systemctl]}" enable touchbar-panel-reset.service
 fi
 
-"${BIN[python3]}" -m py_compile "$user_bin/omarchy-touchbar" "$user_bin/omarchy-chatgpt-dictate" \
-  "$user_bin/omarchy-touchbar-settings"
+compile_files=("$user_bin/omarchy-touchbar" "$user_bin/omarchy-chatgpt-dictate")
+if [[ -e "$user_bin/omarchy-touchbar-settings" ]]; then
+  compile_files+=("$user_bin/omarchy-touchbar-settings")
+fi
+"${BIN[python3]}" -m py_compile "${compile_files[@]}"
 "${BIN[python3]}" -c 'import tomllib, pathlib; tomllib.loads(pathlib.Path.home().joinpath(".config/omarchy/touchbar.toml").read_text())'
 
 "${BIN[systemctl]}" --user stop omarchy-touchbar.service 2>/dev/null || true
@@ -182,5 +195,5 @@ if $nixos; then
   echo "NixOS: keep the system pieces across nixos-rebuild by importing"
   echo "  $project_dir/nixos/touchbar.nix"
   echo "from configuration.nix and setting"
-  echo "  services.omarchyTouchbar = { enable = true; user = \"$me\"; };"
+  echo "  services.omarchyTouchbar = { enable = true; user = \"$me\"; tree = inputs.touchbar; };"
 fi
